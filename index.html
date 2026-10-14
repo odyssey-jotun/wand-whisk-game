@@ -54,7 +54,7 @@ addEventListener('resize', fit); fit();
 
 // ---------- assets ----------
 // bump when art changes so phones don't show cached old images
-const ASSET_V = 4;
+const ASSET_V = 5;
 const img = n => { const i = new Image(); i.src = 'assets/' + n + '.png?v=' + ASSET_V; return i; };
 const IMG = { matcha: img('matcha'), strawberry: img('strawberry'), ube: img('ube'), creamia: img('creamia'),
   cow: img('cow'), logo: img('logo'), health: img('potion-health'), mana: img('potion-mana') };
@@ -158,7 +158,8 @@ let scene = 'title', pick = 0, P, cam, stars, enemies, shots, milk, parts, potio
 function reset() {
   const g = GIRLS[pick];
   P = { g, x: 120, y: GROUND - 90, vx: 0, vy: 0, w: 56, h: 86, face: 1, ground: false, jumps: 0,
-    hp: 3, mana: MANA_MAX, inv: 0, cool: 0, charge: 0, chargeReady: false, dead: false };
+    hp: 3, mana: MANA_MAX, inv: 0, cool: 0, charge: 0, chargeReady: false, dead: false,
+    flipS: 1, sq: 0, sqV: 0, recoil: 0, cast: 0, hurtT: 0, hover: 12, wasGround: false };
   cam = 0; score = 0; shots = []; milk = []; parts = []; potions = []; toast = null;
   stars = starSpots.map(([x, y]) => ({ x, y, got: false }));
   enemies = enemySpots.map(([x, k]) => ({ x, y: GROUND - (k === 'drop' ? 38 : 64), w: k === 'drop' ? 38 : 46,
@@ -192,7 +193,7 @@ function collide(o) {
 }
 function hurtPlayer(fromX) {
   if (P.inv > 0 || P.dead) return;
-  P.hp--; P.inv = 90; P.vy = -8; P.vx = (P.x < fromX ? -6 : 6); shake = 12; sfx.hurt(); P.charge = 0;
+  P.hp--; P.inv = 90; P.hurtT = 24; P.vy = -8; P.vx = (P.x < fromX ? -6 : 6); shake = 12; sfx.hurt(); P.charge = 0;
   burst(P.x + P.w / 2, P.y + 30, '#ffc6d6', 14);
   if (P.hp <= 0) { P.dead = true; endTimer = 120; }
 }
@@ -217,11 +218,11 @@ function fireBasic() {
   if (id === 'matcha') shots.push({ k: 'bubble', x, y: y + (Math.random() - .5) * 10, vx: f * 13, vy: 0, r: 9, dmg: 1, life: 45, wob: Math.random() * 6 });
   if (id === 'ube') shots.push({ k: 'star', x, y, vx: f * 10, vy: 0, r: 10, dmg: 1, life: 70, home: 0.35 });
   if (id === 'creamia') shots.push({ k: 'serve', x, y: y - 10, vx: f * 7 + P.vx * .4, vy: -8, r: 12, dmg: 2, life: 120, grav: .42, splash: true });
-  P.cool = P.g.cool; sfx.shoot();
+  P.cool = P.g.cool; P.recoil = 5; P.cast = 8; sfx.shoot();
 }
 function fireSpecial() {
   const id = P.g.id, f = P.face, x = P.x + P.w / 2 + f * 30, y = P.y + 40;
-  P.mana -= SPECIAL_COST; sfx.special(); shake = 6;
+  P.mana -= SPECIAL_COST; P.recoil = 14; P.cast = 18; P.sqV -= .15; sfx.special(); shake = 6;
   if (id === 'strawberry') shots.push({ k: 'heart', x, y, vx: f * 9, vy: 0, r: 30, dmg: 6, life: 110, pierce: true, hits: new Set() });
   if (id === 'matcha') for (let i = 0; i < 8; i++) { const a = (i - 3.5) * 0.13;
     shots.push({ k: 'bubble', big: true, x, y, vx: f * Math.cos(a) * 12, vy: Math.sin(a) * 12, r: 13, dmg: 2, life: 50, wob: i }); }
@@ -258,8 +259,8 @@ function update() {
     if (dir) { P.vx += dir * 0.9; P.face = dir; } else P.vx *= 0.78;
     P.vx = Math.max(-g.speed, Math.min(g.speed, P.vx));
     if (hit('jump')) {
-      if (P.ground) { P.vy = -g.jump; P.jumps = 1; sfx.jump(); }
-      else if (g.double && P.jumps < 2) { P.vy = -g.jump * 0.9; P.jumps = 2; sfx.jump(); burst(P.x + P.w / 2, P.y + P.h, '#b88cf0', 8, 3); }
+      if (P.ground) { P.vy = -g.jump; P.jumps = 1; P.sqV -= .22; sfx.jump(); }
+      else if (g.double && P.jumps < 2) { P.vy = -g.jump * 0.9; P.jumps = 2; P.sqV -= .2; sfx.jump(); burst(P.x + P.w / 2, P.y + P.h, '#b88cf0', 8, 3); }
     }
     if (!keys.jump && P.vy < -4) P.vy += 0.9;
     P.vy += GRAV;
@@ -281,7 +282,9 @@ function update() {
     }
     P.mana = Math.min(MANA_MAX, P.mana + 0.04);
   } else { P.vx *= .9; P.vy += GRAV; }
+  const vyBefore = P.vy;
   collide(P);
+  animatePlayer(vyBefore);
   if (P.x < cam) P.x = cam, P.vx = 0;
   if (boss.active && P.x + P.w > LEVEL_END - 20) P.x = LEVEL_END - 20 - P.w;
   if (P.y > H + 100 && !P.dead) { P.hp = 0; P.dead = true; endTimer = 90; sfx.hurt(); }
@@ -381,6 +384,40 @@ function update() {
   if (shake > 0) shake--;
   if (P.dead && --endTimer <= 0) { scene = 'over'; endTimer = 40; clearHits(); }
 }
+// squash and stretch spring, turn-around flip, trails and charge sparkles
+const TRAIL = {
+  strawberry: () => ({ col: Math.random() < .5 ? '#ff8fb0' : '#ffd75e', star: true, r: 5, vy: .4 }),
+  matcha: () => ({ col: '#6fbf5a', ring: true, r: 3 + Math.random() * 3, vy: -1.1 }),
+  ube: () => ({ col: Math.random() < .5 ? '#b88cf0' : '#ffe48a', star: true, r: 5, vy: .3 }),
+  creamia: () => ({ col: '#fff8ef', r: 4 + Math.random() * 4, vy: -.3 }),
+};
+function animatePlayer(vyBefore) {
+  if (P.ground && !P.wasGround && vyBefore > 4) {
+    P.sqV += Math.min(.32, vyBefore * .022);
+    for (let i = 0; i < 6; i++) parts.push({ x: P.x + P.w / 2 + (i - 2.5) * 8, y: P.y + P.h - 2, vx: (i - 2.5) * .8, vy: -1 - Math.random(), life: 22, col: '#fff1e6', r: 4 + Math.random() * 3, nog: true });
+  }
+  P.wasGround = P.ground;
+  P.sqV += -P.sq * .28; P.sqV *= .72; P.sq += P.sqV;
+  P.flipS += (P.face - P.flipS) * .3;
+  P.recoil *= .8; if (P.cast > 0) P.cast--; if (P.hurtT > 0) P.hurtT--;
+  P.hover = 12 + Math.sin(t / 14) * 4 + (P.charge / CHARGE) * 12;
+  if (P.dead) return;
+  const moving = Math.abs(P.vx) > .6 || !P.ground;
+  if (t % (moving ? 3 : 9) === 0) {
+    const tr = TRAIL[P.g.id]();
+    parts.push({ x: P.x + P.w / 2 - P.face * (14 + Math.random() * 16), y: P.y + P.h - P.hover + (Math.random() - .5) * 10,
+      vx: -P.vx * .15 + (Math.random() - .5) * .6, vy: tr.vy, life: 30, col: tr.col, r: tr.r, ring: tr.ring, star: tr.star, nog: true });
+  }
+  if (P.charge > 8 && t % 2 === 0) {
+    const a = Math.random() * 6.28, r = 74, cx = P.x + P.w / 2, cy = P.y + P.h / 2 - P.hover;
+    parts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, vx: -Math.cos(a) * r / 16, vy: -Math.sin(a) * r / 16, life: 16, col: P.g.color, r: 3, star: true, nog: true });
+  }
+}
+function groundBelow(x, y) {
+  let best = null;
+  for (const s of solids) if (x >= s.x && x <= s.x + s.w && s.y >= y - 2 && (best === null || s.y < best)) best = s.y;
+  return best;
+}
 function killEnemy(e) {
   e.alive = false; score += e.k === 'drop' ? 20 : 50; sfx.pop();
   burst(e.x + e.w / 2, e.y + e.h / 2, '#ffb3c8', 16);
@@ -431,7 +468,7 @@ function killBoss() {
   setTimeout(() => { scene = 'win'; endTimer = 60; clearHits(); sfx.win(); }, 1500);
 }
 function updateParts() {
-  for (const p of parts) { p.x += p.vx; p.y += p.vy; p.vy += 0.2; p.life--; }
+  for (const p of parts) { p.x += p.vx; p.y += p.vy; if (!p.nog) p.vy += 0.2; p.life--; }
   parts = parts.filter(p => p.life > 0);
 }
 
@@ -567,11 +604,55 @@ function drawEnemies() {
   }
 }
 const tints = {};
-function tinted(col) {
-  if (tints[col]) return tints[col];
-  const im = IMG.cow, c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
+function tinted(im, col) {
+  const key = im.src + col;
+  if (tints[key]) return tints[key];
+  const c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
   const x = c.getContext('2d'); x.drawImage(im, 0, 0); x.globalCompositeOperation = 'source-in'; x.fillStyle = col; x.fillRect(0, 0, c.width, c.height);
-  return (tints[col] = c);
+  return (tints[key] = c);
+}
+// Draws the art in horizontal slices that sway more toward the bottom, so capes, skirts and hair move.
+function wavy(c, src, x, y, w, h, amp, drag) {
+  const N = 26, sh = src.height / N, dh = h / N;
+  for (let i = 0; i < N; i++) {
+    const f2 = (i / N) ** 2, off = Math.sin(t * .16 + i * .45) * amp * f2 - drag * f2;
+    c.drawImage(src, 0, i * sh, src.width, sh + 1, x + off, y + i * dh, w, dh + .6);
+  }
+}
+// Creamia's art stops at her coat, so she rides a whipped-cream cloud that covers the edge.
+function cloud(c, cx, y, w) {
+  const puffs = [[-.42, .03, .2], [-.22, -.03, .26], [0, -.05, .3], [.22, -.03, .26], [.42, .03, .2], [-.12, .08, .24], [.14, .09, .24]];
+  const pr = (p, i) => p[2] * w * .5 * (1 + Math.sin(t / 9 + i) * .06);
+  c.strokeStyle = '#e6c9a8'; c.lineWidth = 4;
+  puffs.forEach((p, i) => { c.beginPath(); c.arc(cx + p[0] * w, y + p[1] * w, pr(p, i), 0, 7); c.stroke(); });
+  c.fillStyle = '#fff8ef';
+  puffs.forEach((p, i) => { c.beginPath(); c.arc(cx + p[0] * w, y + p[1] * w, pr(p, i), 0, 7); c.fill(); });
+  c.fillStyle = '#ffffff';
+  puffs.slice(0, 5).forEach((p, i) => { c.beginPath(); c.arc(cx + p[0] * w - pr(p, i) * .3, y + p[1] * w - pr(p, i) * .35, pr(p, i) * .3, 0, 7); c.fill(); });
+  const cols = ['#ff8fb0', '#7fc8ff', '#ffd75e', '#9fd18b'];
+  for (let i = 0; i < 8; i++) { c.fillStyle = cols[i % 4]; c.save(); c.translate(cx + (i / 7 - .5) * w * .8, y + Math.sin(i * 2.3) * w * .06); c.rotate(i); c.fillRect(-3, -1, 6, 2.4); c.restore(); }
+}
+// Each girl is composed on a scratch canvas first, so fading and tinting apply to her as one piece.
+const gbuf = document.createElement('canvas'), gctx = gbuf.getContext('2d');
+function drawGirl(id, cx, footY, maxH, maxW, o = {}) {
+  const im = IMG[id]; if (!im.complete || !im.width) return;
+  const s = Math.min(maxH / im.height, maxW / im.width), w = im.width * s, h = im.height * s;
+  const sq = o.sq || 0, breathe = 1 + Math.sin(t / 20) * .015, amp = o.amp ?? 1.5, drag = o.drag || 0;
+  const pad = 20, bw = Math.ceil(w + pad * 2), bh = Math.ceil(h + 34);
+  if (gbuf.width < bw || gbuf.height < bh) { gbuf.width = Math.max(gbuf.width, bw); gbuf.height = Math.max(gbuf.height, bh); }
+  gctx.globalCompositeOperation = 'source-over'; gctx.globalAlpha = 1; gctx.clearRect(0, 0, gbuf.width, gbuf.height);
+  wavy(gctx, im, pad, 0, w, h, amp, drag);
+  if (id === 'creamia') cloud(gctx, pad + w / 2 - w * .07, h - h * .02, w * .8);
+  if (o.tint && o.tintA > 0) {
+    gctx.globalCompositeOperation = 'source-atop'; gctx.globalAlpha = Math.min(1, o.tintA);
+    gctx.fillStyle = o.tint; gctx.fillRect(0, 0, bw, bh);
+    gctx.globalCompositeOperation = 'source-over'; gctx.globalAlpha = 1;
+  }
+  ctx.save(); ctx.translate(cx, footY); ctx.rotate(o.lean || 0);
+  ctx.scale((o.flip ?? 1) * (1 + sq * .6), (1 - sq) * breathe);
+  ctx.globalAlpha = o.alpha ?? 1;
+  ctx.drawImage(gbuf, 0, 0, bw, bh, -w / 2 - pad, -h, bw, bh);
+  ctx.restore();
 }
 function drawBoss() {
   if (!boss.active && !boss.dead && boss.x - cam > W + 50) return;
@@ -581,6 +662,7 @@ function drawBoss() {
   const sq = grounded ? 1 + Math.sin(t / (angry ? 4 : 7)) * .03 : .93;
   ctx.save();
   ctx.translate(x + b.w / 2, b.y + b.h);
+  ctx.rotate(grounded ? Math.sin(t / (angry ? 5 : 9)) * .03 : b.dir * .12);
   if (b.dead) { ctx.rotate(-.5 * b.dir); ctx.globalAlpha = .7; }
   // the art faces left; flip it to face the player
   ctx.scale((b.dir < 0 ? 1 : -1) / sq, sq);
@@ -588,7 +670,7 @@ function drawBoss() {
     ctx.drawImage(im, -b.w / 2, -b.h, b.w, b.h);
     if (b.flash || angry) { // tinted copies are built once, so only the cow changes color
       ctx.globalAlpha = b.flash ? .7 : .3 + .15 * Math.sin(t / 6);
-      ctx.drawImage(tinted(b.flash ? '#ffffff' : '#ff3d6e'), -b.w / 2, -b.h, b.w, b.h);
+      ctx.drawImage(tinted(im, b.flash ? '#ffffff' : '#ff3d6e'), -b.w / 2, -b.h, b.w, b.h);
     }
   }
   ctx.restore();
@@ -604,33 +686,35 @@ function drawBoss() {
   }
 }
 function drawPlayer() {
-  const cx = P.x + P.w / 2 - cam, cy = P.y + P.h / 2;
-  // charge ring
+  const cx = P.x + P.w / 2 - cam, cy = P.y + P.h / 2 - P.hover;
+  // soft shadow on whatever is underneath, shrinking with height
+  const gy = groundBelow(P.x + P.w / 2, P.y + P.h - 4);
+  if (gy !== null) {
+    const k = Math.max(.25, 1 - (gy - (P.y + P.h)) / 260);
+    ctx.fillStyle = `rgba(91,58,120,${.2 * k})`; ctx.beginPath(); ctx.ellipse(cx, gy + 2, 34 * k * (1 + Math.sin(t / 14) * .08), 7 * k, 0, 0, 7); ctx.fill();
+  }
   if (P.charge > 8) {
     const pct = P.charge / CHARGE, col = P.g.color;
+    const glow = ctx.createRadialGradient(cx, cy, 10, cx, cy, 80);
+    glow.addColorStop(0, col + '66'); glow.addColorStop(1, col + '00');
+    ctx.fillStyle = glow; ctx.globalAlpha = pct * (P.chargeReady ? .8 + .2 * Math.sin(t / 3) : .7);
+    ctx.beginPath(); ctx.arc(cx, cy, 80, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
     ctx.save(); ctx.lineWidth = 5; ctx.lineCap = 'round';
-    ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.beginPath(); ctx.arc(cx, cy, 58, 0, 7); ctx.stroke();
-    ctx.strokeStyle = col; ctx.beginPath(); ctx.arc(cx, cy, 58, -Math.PI / 2, -Math.PI / 2 + pct * Math.PI * 2); ctx.stroke();
-    if (P.chargeReady) {
-      ctx.globalAlpha = .25 + .2 * Math.sin(t / 3); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(cx, cy, 56, 0, 7); ctx.fill();
-      ctx.globalAlpha = 1; ctx.fillStyle = '#fff';
-      for (let i = 0; i < 4; i++) { const a = t / 10 + i * Math.PI / 2; star(cx + Math.cos(a) * 58, cy + Math.sin(a) * 58, 4); ctx.fill(); }
-    }
+    ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.beginPath(); ctx.arc(cx, cy, 60, 0, 7); ctx.stroke();
+    ctx.strokeStyle = col; ctx.beginPath(); ctx.arc(cx, cy, 60, -Math.PI / 2, -Math.PI / 2 + pct * Math.PI * 2); ctx.stroke();
+    if (P.chargeReady) { ctx.fillStyle = '#fff'; for (let i = 0; i < 4; i++) { const a = t / 10 + i * Math.PI / 2; star(cx + Math.cos(a) * 60, cy + Math.sin(a) * 60, 4); ctx.fill(); } }
     ctx.restore();
   }
-  if (P.inv > 0 && Math.floor(P.inv / 5) % 2) return;
-  const im = IMG[P.g.id];
-  if (!im.complete || !im.width) return;
-  const s = Math.min(100 / im.height, 150 / im.width), w = im.width * s, h = im.height * s;
-  ctx.save(); ctx.translate(cx, P.y + P.h);
-  const run = P.ground && Math.abs(P.vx) > .5;
-  const bob = run ? Math.abs(Math.sin(t / 4)) * -5 : Math.sin(t / 18) * -2;
-  const tilt = P.ground ? P.vx * .012 : Math.max(-.25, Math.min(.25, P.vy * .02)) * P.face;
-  ctx.rotate(tilt);
-  ctx.scale(P.face * (P.ground ? 1 : .96), P.ground ? 1 : 1.04);
-  if (P.dead) ctx.rotate(Math.min(1.4, (120 - endTimer) * .03));
-  ctx.drawImage(im, -w / 2, -h + bob, w, h);
-  ctx.restore();
+  const air = !P.ground, blink = P.inv > 0 && Math.floor(P.inv / 4) % 2;
+  const lean = P.dead ? Math.min(1.4, (120 - endTimer) * .03) * P.face
+    : P.vx * .022 + (air ? Math.max(-.2, Math.min(.2, P.vy * .015)) * P.face : 0);
+  drawGirl(P.g.id, cx - P.face * P.recoil, P.y + P.h - P.hover, 100, 150, {
+    flip: P.flipS, sq: P.sq, lean,
+    amp: 1.4 + Math.min(2.5, Math.abs(P.vx) * .4) + (air ? 1.5 : 0),
+    drag: Math.min(8, Math.abs(P.vx) * 1.2),
+    alpha: blink ? .45 : 1,
+    tint: P.hurtT > 0 ? '#ff3d6e' : P.g.color, tintA: P.hurtT > 0 ? P.hurtT / 55 : P.cast / 40,
+  });
 }
 function drawTaiyaki(r) {
   ctx.fillStyle = '#e0a052'; ctx.strokeStyle = '#a8662a'; ctx.lineWidth = 3;
@@ -678,7 +762,12 @@ function drawShots() {
     ctx.restore();
   }
   for (const m of milk) { ctx.fillStyle = '#ffd0de'; ctx.strokeStyle = '#e9849f'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(m.x - cam, m.y, 7, 0, 7); ctx.fill(); ctx.stroke(); }
-  for (const p of parts) { ctx.globalAlpha = Math.min(1, p.life / 30); ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(p.x - cam, p.y, p.r, 0, 7); ctx.fill(); }
+  for (const p of parts) {
+    ctx.globalAlpha = Math.min(1, p.life / 30);
+    if (p.ring) { ctx.strokeStyle = p.col; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(p.x - cam, p.y, p.r, 0, 7); ctx.stroke(); }
+    else if (p.star) { ctx.fillStyle = p.col; star(p.x - cam, p.y, p.r * .6); ctx.fill(); }
+    else { ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(p.x - cam, p.y, p.r, 0, 7); ctx.fill(); }
+  }
   ctx.globalAlpha = 1;
 }
 function drawHUD() {
@@ -720,7 +809,7 @@ function drawTitle() {
     ctx.fillStyle = sel ? '#fff' : 'rgba(255,255,255,.55)'; rr(cx - 105, 152, 210, 296, 22); ctx.fill();
     if (sel) { ctx.strokeStyle = g.color; ctx.lineWidth = 5; ctx.stroke(); }
     const bob = sel ? Math.sin(t / 10) * 4 : 0;
-    drawImg(IMG[g.id], cx, 318 + bob, sel ? 150 : 135, 196);
+    drawGirl(g.id, cx, 318 + bob - (g.id === 'creamia' ? 24 : 0), sel ? 150 : 135, 196, { amp: sel ? 1.8 : .9 });
     ctx.fillStyle = g.color; ctx.font = '700 23px Fredoka'; ctx.fillText(g.name, cx, 352);
     ctx.fillStyle = '#6b5577'; ctx.font = '500 13px Fredoka';
     let line = '', ly = 375;
@@ -737,7 +826,7 @@ function drawEnd(win) {
   ctx.fillStyle = win ? 'rgba(253,227,234,.92)' : 'rgba(43,29,58,.82)'; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = 'center';
   if (win) {
-    drawImg(IMG[P.g.id], W / 2, 340 + Math.sin(t / 10) * 6, 210, 340);
+    drawGirl(P.g.id, W / 2, 340 + Math.sin(t / 10) * 6, 210, 340, { amp: 2.2 });
     ctx.fillStyle = '#c4527a'; ctx.font = '700 46px Fredoka'; ctx.fillText('The cafe is saved!', W / 2, 90);
     ctx.fillStyle = '#5b3a78'; ctx.font = '700 26px Fredoka'; ctx.fillText(`${P.g.name} calmed down Strawberry Milk  ·  ★ ${score}`, W / 2, 385);
     const got = stars.filter(s => s.got).length; ctx.font = '500 18px Fredoka'; ctx.fillText(`${got} of ${stars.length} stars`, W / 2, 415);
