@@ -613,14 +613,6 @@ function tinted(im, col) {
   const x = c.getContext('2d'); x.drawImage(im, 0, 0); x.globalCompositeOperation = 'source-in'; x.fillStyle = col; x.fillRect(0, 0, c.width, c.height);
   return (tints[key] = c);
 }
-// Draws the art in horizontal slices that sway more toward the bottom, so capes, skirts and hair move.
-function wavy(c, src, x, y, w, h, amp, drag) {
-  const N = 26, sh = src.height / N, dh = h / N;
-  for (let i = 0; i < N; i++) {
-    const f2 = (i / N) ** 2, off = Math.sin(t * .16 + i * .45) * amp * f2 - drag * f2;
-    c.drawImage(src, 0, i * sh, src.width, sh + 1, x + off, y + i * dh, w, dh + .6);
-  }
-}
 // Each girl is her own art from the waist up, with legs drawn here to match her outfit.
 // hip / hem are in pixels of the cropped body art; k scales that art to game size.
 const WALK = {
@@ -687,7 +679,7 @@ function drawWalker(id, cx, footY, size, o = {}) {
   const [a1, k1, p1, a2, k2, p2] = legPose(mode, ph);
   leg(c, hx - 3 * size, hy, a2, k2, p2, L, lw, cfg, true);
   leg(c, hx + 3 * size, hy, a1, k1, p1, L, lw, cfg, false);
-  wavy(c, im, pad, top, bw, bh, o.amp ?? .9, o.drag || 0);
+  c.drawImage(im, pad, top, bw, bh);
   hem(c, cfg, pad, top, K);
   if (o.tint && o.tintA > 0) {
     c.globalCompositeOperation = 'source-atop'; c.globalAlpha = Math.min(1, o.tintA);
