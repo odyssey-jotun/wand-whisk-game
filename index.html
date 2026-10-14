@@ -55,14 +55,14 @@ addEventListener('resize', fit); fit();
 
 // ---------- assets ----------
 // bump when art changes so phones don't show cached old images
-const ASSET_V = 11;
+const ASSET_V = 12;
 const img = n => { const i = new Image(); i.src = 'assets/' + n + '.png?v=' + ASSET_V; return i; };
 const IMG = { matcha: img('matcha'), strawberry: img('strawberry'), ube: img('ube'), creamia: img('creamia'),
   cow: img('cow'), 'body-strawberry': img('body-strawberry'), 'body-matcha': img('body-matcha'),
   'body-ube': img('body-ube'), 'body-creamia': img('body-creamia'),
   ...Object.fromEntries([['strawberry', []], ['matcha', ['arm']], ['ube', []], ['creamia', []]].flatMap(([id, extra]) =>
     ['body', 'thighA', 'shinA', 'thighB', 'shinB', ...extra].map(n => [`rig-${id}-${n}`, img(`rig/${id}-${n}`)]))),
-  'pose-ube-crouch': img('rig/ube-crouch'), 'pose-ube-jump': img('rig/ube-jump'), 'pose-ube-cast': img('rig/ube-cast'), 'pose-ube-walk': img('rig/ube-walk'), logo: img('logo'), health: img('potion-health'), mana: img('potion-mana') };
+  'pose-ube-crouch': img('rig/ube-crouch'), 'pose-ube-jump': img('rig/ube-jump'), 'pose-ube-cast': img('rig/ube-cast'), 'pose-ube-walk': img('rig/ube-walk'), 'pose-ube-stand': img('rig/ube-stand'), logo: img('logo'), health: img('potion-health'), mana: img('potion-mana') };
 
 // Tap fires each girl's basic shot. Hold to charge, release for her special (costs mana).
 const GIRLS = [
@@ -705,7 +705,7 @@ function rigLeg(c, id, r, side, thigh, knee) {
 }
 const GROUND_POSES = new Set(['idle', 'run', 'crouch']);
 // Whole drawn poses that replace the leg system for one move. h = height on screen, footX = where her feet sit across the image (0 to 1).
-const POSES = { ube: { crouch: { h: 76, footX: .54 }, jump: { h: 101, footX: .56 }, cast: { h: 100, footX: .4 }, walk: { h: 104, footX: .56 } } };
+const POSES = { ube: { crouch: { h: 76, footX: .54 }, jump: { h: 101, footX: .56 }, cast: { h: 100, footX: .4 }, walk: { h: 104, footX: .56 }, stand: { h: 112, footX: .46 } } };
 function drawPose(id, mode, cx, footY, size, o) {
   const im = IMG[`pose-${id}-${mode}`], ps = POSES[id][mode];
   if (!im.complete || !im.width) return;
@@ -857,7 +857,9 @@ function drawPlayer() {
   if (poses.cast && !P.crouch && (P.cast > 0 || P.charge > 8)) mode = 'cast';
   else if (poses.jump && ['rise', 'fall', 'glide'].includes(mode) && !P.dead) mode = 'jump';
   // two-step run: the drawn stride, then her standing legs as the passing frame
-  else if (poses.walk && mode === 'run') mode = Math.floor(P.walk / (Math.PI / 2)) % 2 ? 'idle' : 'walk';
+  else if (poses.walk && mode === 'run') mode = Math.floor(P.walk / (Math.PI / 2)) % 2 ? 'stand' : 'walk';
+  // a girl with a full set of drawings stands in her own drawing instead of the hinged legs
+  if (poses.stand && mode === 'idle') mode = 'stand';
   drawWalker(P.g.id, cx - P.face * P.recoil, P.y + P.h - P.hover, 1, {
     mode, ph: P.walk, aim: P.aim, flip: P.flipS, sq: P.sq, lean: P.dead ? lean : lean * .7 + (mode === 'run' ? P.face * .06 : 0),
     amp: .9 + (air ? .8 : 0), drag: Math.min(3, Math.abs(P.vx) * .5),
@@ -958,7 +960,7 @@ function drawTitle() {
     ctx.fillStyle = sel ? '#fff' : 'rgba(255,255,255,.55)'; rr(cx - 105, 152, 210, 296, 22); ctx.fill();
     if (sel) { ctx.strokeStyle = g.color; ctx.lineWidth = 5; ctx.stroke(); }
     const bob = sel ? Math.sin(t / 10) * 4 : 0;
-    drawWalker(g.id, cx, 326 + (sel ? Math.sin(t / 10) * 2 : 0), sel ? 1.38 : 1.26, { mode: 'idle', amp: sel ? 1.4 : .8 });
+    drawWalker(g.id, cx, 326 + (sel ? Math.sin(t / 10) * 2 : 0), sel ? 1.38 : 1.26, { mode: POSES[g.id]?.stand ? 'stand' : 'idle', amp: sel ? 1.4 : .8 });
     ctx.fillStyle = g.color; ctx.font = '700 23px Fredoka'; ctx.fillText(g.name, cx, 352);
     ctx.fillStyle = '#6b5577'; ctx.font = '500 13px Fredoka';
     let line = '', ly = 375;
@@ -975,7 +977,8 @@ function drawEnd(win) {
   ctx.fillStyle = win ? 'rgba(253,227,234,.92)' : 'rgba(43,29,58,.82)'; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = 'center';
   if (win) {
-    drawWalker(P.g.id, W / 2, 350, 2, { mode: Math.sin(t / 25) > .6 ? 'rise' : 'idle', amp: 1.6 });
+    const ps = POSES[P.g.id] || {}, hop = Math.sin(t / 25) > .6;
+    drawWalker(P.g.id, W / 2, 350, 2, { mode: hop ? (ps.jump ? 'jump' : 'rise') : (ps.stand ? 'stand' : 'idle'), amp: 1.6 });
     ctx.fillStyle = '#c4527a'; ctx.font = '700 46px Fredoka'; ctx.fillText('The cafe is saved!', W / 2, 90);
     ctx.fillStyle = '#5b3a78'; ctx.font = '700 26px Fredoka'; ctx.fillText(`${P.g.name} calmed down Strawberry Milk  ·  ★ ${score}`, W / 2, 385);
     const got = stars.filter(s => s.got).length; ctx.font = '500 18px Fredoka'; ctx.fillText(`${got} of ${stars.length} stars`, W / 2, 415);
