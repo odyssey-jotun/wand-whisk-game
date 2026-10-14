@@ -1,8 +1,8 @@
-# Publishes both games: main at the site root, the animated branch at /animated/
-name: Deploy both games
+# Publishes three versions: main at the site root, animated at /animated/, walking at /walking/
+name: Deploy all games
 on:
   push:
-    branches: [main, animated]
+    branches: [main, animated, walking]
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,10 +22,14 @@ jobs:
         with: { ref: main, path: site }
       - uses: actions/checkout@v4
         with: { ref: animated, path: animated }
+      - uses: actions/checkout@v4
+        with: { ref: walking, path: walking }
       - run: |
           rm -rf site/.git site/.github
-          mkdir -p site/animated
-          rsync -a --exclude .git --exclude .github animated/ site/animated/
+          for v in animated walking; do
+            mkdir -p site/$v
+            rsync -a --exclude .git --exclude .github $v/ site/$v/
+          done
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with: { path: site }
