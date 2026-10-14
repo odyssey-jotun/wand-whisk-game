@@ -32,6 +32,7 @@
   <div class="pad left">
     <button data-k="left" aria-label="Left">&#9664;</button>
     <button data-k="right" aria-label="Right">&#9654;</button>
+    <button data-k="down" aria-label="Crouch">&#9660;</button>
   </div>
   <div class="pad right">
     <button data-k="shoot" aria-label="Magic, hold to charge">&#9733;</button>
@@ -54,10 +55,14 @@ addEventListener('resize', fit); fit();
 
 // ---------- assets ----------
 // bump when art changes so phones don't show cached old images
-const ASSET_V = 5;
+const ASSET_V = 12;
 const img = n => { const i = new Image(); i.src = 'assets/' + n + '.png?v=' + ASSET_V; return i; };
 const IMG = { matcha: img('matcha'), strawberry: img('strawberry'), ube: img('ube'), creamia: img('creamia'),
-  cow: img('cow'), logo: img('logo'), health: img('potion-health'), mana: img('potion-mana') };
+  cow: img('cow'), 'body-strawberry': img('body-strawberry'), 'body-matcha': img('body-matcha'),
+  'body-ube': img('body-ube'), 'body-creamia': img('body-creamia'),
+  ...Object.fromEntries([['strawberry', []], ['matcha', ['arm']], ['ube', []], ['creamia', []]].flatMap(([id, extra]) =>
+    ['body', 'thighA', 'shinA', 'thighB', 'shinB', ...extra].map(n => [`rig-${id}-${n}`, img(`rig/${id}-${n}`)]))),
+  'pose-ube-crouch': img('rig/ube-crouch'), 'pose-ube-jump': img('rig/ube-jump'), 'pose-ube-cast': img('rig/ube-cast'), 'pose-ube-walk': img('rig/ube-walk'), 'pose-ube-stand': img('rig/ube-stand'), logo: img('logo'), health: img('potion-health'), mana: img('potion-mana') };
 
 // Tap fires each girl's basic shot. Hold to charge, release for her special (costs mana).
 const GIRLS = [
@@ -77,7 +82,7 @@ const GIRLS = [
 
 // ---------- input ----------
 const keys = {};
-const map = { ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right', ArrowUp:'jump', KeyW:'jump', Space:'jump',
+const map = { ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right', ArrowUp:'jump', KeyW:'jump', Space:'jump', ArrowDown:'down', KeyS:'down',
   KeyX:'shoot', KeyJ:'shoot', KeyK:'shoot', Enter:'enter', KeyZ:'jump' };
 addEventListener('keydown', e => { const k = map[e.code]; if (k) { if (!keys[k]) keys[k + 'Hit'] = true; keys[k] = true; e.preventDefault(); } });
 addEventListener('keyup', e => { const k = map[e.code]; if (k) keys[k] = false; });
@@ -159,7 +164,7 @@ function reset() {
   const g = GIRLS[pick];
   P = { g, x: 120, y: GROUND - 90, vx: 0, vy: 0, w: 56, h: 86, face: 1, ground: false, jumps: 0,
     hp: 3, mana: MANA_MAX, inv: 0, cool: 0, charge: 0, chargeReady: false, dead: false,
-    flipS: 1, sq: 0, sqV: 0, recoil: 0, cast: 0, hurtT: 0, hover: 12, wasGround: false };
+    flipS: 1, sq: 0, sqV: 0, walk: 0, aim: 0, crouch: false, recoil: 0, cast: 0, hurtT: 0, hover: 12, wasGround: false };
   cam = 0; score = 0; shots = []; milk = []; parts = []; potions = []; toast = null;
   stars = starSpots.map(([x, y]) => ({ x, y, got: false }));
   enemies = enemySpots.map(([x, k]) => ({ x, y: GROUND - (k === 'drop' ? 38 : 64), w: k === 'drop' ? 38 : 46,
@@ -255,8 +260,13 @@ function update() {
   // player movement
   const g = P.g;
   if (!P.dead) {
+    // crouch: plant, shrink the hitbox from the top, keep the feet where they are
+    const wantCrouch = keys.down && P.ground && !keys.jump;
+    if (wantCrouch && !P.crouch) { P.crouch = true; P.y += 30; P.h = 56; }
+    else if (!wantCrouch && P.crouch) { P.crouch = false; P.y -= 30; P.h = 86; }
     const dir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-    if (dir) { P.vx += dir * 0.9; P.face = dir; } else P.vx *= 0.78;
+    if (dir) P.face = dir;
+    if (dir && !P.crouch) P.vx += dir * 0.9; else P.vx *= 0.78;
     P.vx = Math.max(-g.speed, Math.min(g.speed, P.vx));
     if (hit('jump')) {
       if (P.ground) { P.vy = -g.jump; P.jumps = 1; P.sqV -= .22; sfx.jump(); }
@@ -400,7 +410,9 @@ function animatePlayer(vyBefore) {
   P.sqV += -P.sq * .28; P.sqV *= .72; P.sq += P.sqV;
   P.flipS += (P.face - P.flipS) * .3;
   P.recoil *= .8; if (P.cast > 0) P.cast--; if (P.hurtT > 0) P.hurtT--;
-  P.hover = 12 + Math.sin(t / 14) * 4 + (P.charge / CHARGE) * 12;
+  P.aim += ((P.cast > 0 || P.charge > 8 ? 1 : 0) - P.aim) * .35;
+  P.hover = (P.charge / CHARGE) * 14;
+  if (P.ground) P.walk = (P.walk + Math.abs(P.vx) * .075) % (Math.PI * 2);
   if (P.dead) return;
   const moving = Math.abs(P.vx) > .6 || !P.ground;
   if (t % (moving ? 3 : 9) === 0) {
@@ -611,39 +623,178 @@ function tinted(im, col) {
   const x = c.getContext('2d'); x.drawImage(im, 0, 0); x.globalCompositeOperation = 'source-in'; x.fillStyle = col; x.fillRect(0, 0, c.width, c.height);
   return (tints[key] = c);
 }
-// Creamia's art stops at her coat, so she rides a whipped-cream cloud that covers the edge.
-function cloud(c, cx, y, w) {
-  const puffs = [[-.42, .03, .2], [-.22, -.03, .26], [0, -.05, .3], [.22, -.03, .26], [.42, .03, .2], [-.12, .08, .24], [.14, .09, .24]];
-  const pr = (p, i) => p[2] * w * .5 * (1 + Math.sin(t / 9 + i) * .06);
-  c.strokeStyle = '#e6c9a8'; c.lineWidth = 4;
-  puffs.forEach((p, i) => { c.beginPath(); c.arc(cx + p[0] * w, y + p[1] * w, pr(p, i), 0, 7); c.stroke(); });
-  c.fillStyle = '#fff8ef';
-  puffs.forEach((p, i) => { c.beginPath(); c.arc(cx + p[0] * w, y + p[1] * w, pr(p, i), 0, 7); c.fill(); });
-  c.fillStyle = '#ffffff';
-  puffs.slice(0, 5).forEach((p, i) => { c.beginPath(); c.arc(cx + p[0] * w - pr(p, i) * .3, y + p[1] * w - pr(p, i) * .35, pr(p, i) * .3, 0, 7); c.fill(); });
-  const cols = ['#ff8fb0', '#7fc8ff', '#ffd75e', '#9fd18b'];
-  for (let i = 0; i < 8; i++) { c.fillStyle = cols[i % 4]; c.save(); c.translate(cx + (i / 7 - .5) * w * .8, y + Math.sin(i * 2.3) * w * .06); c.rotate(i); c.fillRect(-3, -1, 6, 2.4); c.restore(); }
+// Each girl is her own art from the waist up, with legs drawn here to match her outfit.
+// hip / hem are in pixels of the cropped body art; k scales that art to game size.
+const WALK = {
+  strawberry: { k: .44, hip: [164, 165], hem: [128, 202, 165], hemCol: '#fff6f9', ink: '#3a2233', stock: '#eaf1ff', boot: '#8a3d5c', trim: '#ff6f98' },
+  matcha:     { k: .34, hip: [152, 210], hem: [122, 198, 210], hemCol: '#3f8f4c', ink: '#14201a', stock: '#5fb86a', boot: '#2f6a3a', trim: '#f2c14e' },
+  ube:        { k: .36, hip: [196, 200], hem: [160, 236, 200], hemCol: '#4a2f86', ink: '#1a1030', stock: '#8b6fd6', boot: '#5b3fa8', trim: '#f2c14e' },
+  creamia:    { k: .30, hip: [215, 242], hem: [166, 286, 241], hemCol: '#f6f7ff', ink: '#2a2030', stock: '#3d3654', boot: '#8a5a35', trim: '#e2b44a', coat: true },
+};
+const LEG = 30;
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16), c = v => Math.round(v * f).toString(16).padStart(2, '0');
+  return '#' + c(n >> 16) + c((n >> 8) & 255) + c(n & 255);
 }
-// Each girl is composed on a scratch canvas first, so fading and tinting apply to her as one piece.
+function leg(c, x, y, thigh, knee, point, len, w, cfg, back) {
+  const st = back ? shade(cfg.stock, .78) : cfg.stock, bt = back ? shade(cfg.boot, .78) : cfg.boot, half = len / 2;
+  c.save(); c.translate(x, y); c.rotate(-thigh);
+  c.lineWidth = 1.6; c.strokeStyle = cfg.ink; c.lineJoin = 'round';
+  c.fillStyle = st; c.beginPath(); c.roundRect(-w / 2, -6, w, half + 8, w / 2); c.fill(); c.stroke();
+  c.translate(0, half); c.rotate(knee);
+  c.fillStyle = st; c.beginPath(); c.roundRect(-w * .44, -3, w * .88, half + 3, w * .44); c.fill(); c.stroke();
+  // boot with a little trim band, foot pointing forward
+  c.fillStyle = bt; c.beginPath(); c.roundRect(-w * .5, half * .25, w, half * .8, [2, 2, w * .4, w * .4]); c.fill(); c.stroke();
+  c.save(); c.translate(w * .1, half); c.rotate(point);
+  c.fillStyle = bt; c.beginPath(); c.ellipse(w * .35, 0, w * .78, w * .4, 0, 0, 7); c.fill(); c.stroke(); c.restore();
+  c.fillStyle = back ? shade(cfg.trim, .8) : cfg.trim; c.fillRect(-w * .5, half * .25, w, 2.4);
+  c.restore();
+}
+function hem(c, cfg, ox, oy, K) {
+  const [x0, x1, y] = cfg.hem, X0 = ox + x0 * K, X1 = ox + x1 * K, Y = oy + y * K;
+  c.lineWidth = 1.5; c.strokeStyle = cfg.ink; c.fillStyle = cfg.hemCol;
+  if (cfg.coat) { // coat: a rounded hem with gold trim
+    // just round off the cut edge of the coat and give it a gold trim line
+    c.beginPath(); c.moveTo(X0, Y - 3); c.quadraticCurveTo((X0 + X1) / 2, Y + 5, X1, Y - 3); c.lineTo(X1, Y - 4); c.lineTo(X0, Y - 4); c.closePath(); c.fill();
+    c.beginPath(); c.moveTo(X0, Y - 3); c.quadraticCurveTo((X0 + X1) / 2, Y + 5, X1, Y - 3); c.stroke();
+    c.strokeStyle = cfg.trim; c.lineWidth = 1.6; c.beginPath(); c.moveTo(X0 + 4, Y - 3.5); c.quadraticCurveTo((X0 + X1) / 2, Y + 2.5, X1 - 4, Y - 3.5); c.stroke(); return;
+  }
+  const r = 2.6 * K / .36, n = Math.max(3, Math.round((X1 - X0) / (r * 1.7)));
+  c.fillRect(X0, Y - r, X1 - X0, r);
+  for (let i = 0; i <= n; i++) { const x = X0 + (X1 - X0) * i / n; c.beginPath(); c.arc(x, Y, r, 0, Math.PI); c.fill(); c.stroke(); }
+}
+function legPose(mode, ph) {
+  const kick = Math.sin(t / 8) * .08;
+  switch (mode) {
+    case 'run': return [.62 * Math.sin(ph), .15 + .95 * Math.max(0, Math.cos(ph)), .1,
+                        .62 * Math.sin(ph + Math.PI), .15 + .95 * Math.max(0, Math.cos(ph + Math.PI)), .1];
+    case 'rise': return [.95, 1.5, .35, .4, 1.15, .3];
+    case 'crouch': return [1.25, 2.3, -.25, .95, 2.05, -.2];
+    case 'fall': return [.14 + kick, .1, .7, -.2 - kick, .28, .75];
+    case 'glide': return [-.28 + kick * .5, .35, .85, -.46, .55, .9];
+    default: { const b = Math.sin(t / 20) * .03; return [.1 + b, .06, 0, -.08 - b, .08, 0]; }
+  }
+}
+// Composed on a scratch canvas first, so fading and tinting apply to the whole girl at once.
 const gbuf = document.createElement('canvas'), gctx = gbuf.getContext('2d');
-function drawGirl(id, cx, footY, maxH, maxW, o = {}) {
-  const im = IMG[id]; if (!im.complete || !im.width) return;
-  const s = Math.min(maxH / im.height, maxW / im.width), w = im.width * s, h = im.height * s;
-  const sq = o.sq || 0, breathe = 1 + Math.sin(t / 20) * .015, amp = o.amp ?? 1.5, drag = o.drag || 0;
-  const pad = 20, bw = Math.ceil(w + pad * 2), bh = Math.ceil(h + 34);
-  if (gbuf.width < bw || gbuf.height < bh) { gbuf.width = Math.max(gbuf.width, bw); gbuf.height = Math.max(gbuf.height, bh); }
-  gctx.globalCompositeOperation = 'source-over'; gctx.globalAlpha = 1; gctx.clearRect(0, 0, gbuf.width, gbuf.height);
-  gctx.drawImage(im, pad, 0, w, h);
-  if (id === 'creamia') cloud(gctx, pad + w / 2 - w * .07, h - h * .02, w * .8);
+// Full-body rigs cut from standing art: the body plus each leg split at hip and knee.
+// Numbers are in the rig's own pixels (the art saved at 1/4 size); A is the back leg, B the front.
+const RIGS = {
+  strawberry: { k: .34, top: 17.5, left: 3.75, width: 264, foot: 347.5,
+    at: { body: [3.75, 17.5], thighA: [93, 220.5], shinA: [77.5, 258], thighB: [142.25, 220.5], shinB: [148, 261.75] },
+    hipA: [120.5, 226.25], kneeA: [111.25, 263], hipB: [158.75, 227.5], kneeB: [160, 266.25] },
+  // arm: the casting hand + held item, swung from the wrist; reach/turn are how far it pushes out when she casts
+  matcha: { k: .327, top: 6.75, left: 46, width: 172.75, foot: 349.5,
+    at: { body: [46, 6.75], thighA: [94.75, 227.25], shinA: [84.75, 261.75], thighB: [132.75, 228], shinB: [143.5, 264.25], arm: [177.75, 103.25] },
+    hipA: [118, 237.5], kneeA: [113, 267], hipB: [160, 238.75], kneeB: [160.5, 269.5],
+    wrist: [197.5, 166.25], reach: [16, -4], turn: .3 },
+  ube: { k: .343, top: 13.5, left: 16.5, width: 239, foot: 340.5,
+    at: { body: [16.5, 13.5], thighA: [90.75, 208.25], shinA: [58.75, 263.5], thighB: [124.5, 208.25], shinB: [140.25, 263.5] },
+    hipA: [107.5, 218.75], kneeA: [103.75, 268.75], hipB: [145, 220], kneeB: [151.25, 268.75] },
+  creamia: { k: .349, top: 19.5, left: 16, width: 223.25, foot: 340.5,
+    at: { body: [16, 19.5], thighA: [105.5, 204.5], shinA: [89.75, 252.25], thighB: [169.5, 204.5], shinB: [175.5, 254.75] },
+    hipA: [137.5, 217.5], kneeA: [121.25, 257.5], hipB: [185, 217.5], kneeB: [187.5, 260] },
+};
+function rigLeg(c, id, r, side, thigh, knee) {
+  const hip = r['hip' + side], kn = r['knee' + side], th = IMG[`rig-${id}-thigh${side}`], sh = IMG[`rig-${id}-shin${side}`];
+  c.save(); c.translate(hip[0], hip[1]); c.rotate(-thigh);
+  c.drawImage(th, r.at['thigh' + side][0] - hip[0], r.at['thigh' + side][1] - hip[1]);
+  c.translate(kn[0] - hip[0], kn[1] - hip[1]); c.rotate(knee);
+  c.drawImage(sh, r.at['shin' + side][0] - kn[0], r.at['shin' + side][1] - kn[1]);
+  c.restore();
+}
+const GROUND_POSES = new Set(['idle', 'run', 'crouch']);
+// Whole drawn poses that replace the leg system for one move. h = height on screen, footX = where her feet sit across the image (0 to 1).
+const POSES = { ube: { crouch: { h: 76, footX: .54 }, jump: { h: 101, footX: .56 }, cast: { h: 100, footX: .4 }, walk: { h: 104, footX: .56 }, stand: { h: 112, footX: .46 } } };
+function drawPose(id, mode, cx, footY, size, o) {
+  const im = IMG[`pose-${id}-${mode}`], ps = POSES[id][mode];
+  if (!im.complete || !im.width) return;
+  const h = ps.h * size, w = im.width * h / im.height, pad = 4;
+  const BW = Math.ceil(w + pad * 2), BH = Math.ceil(h + pad * 2);
+  if (gbuf.width < BW || gbuf.height < BH) { gbuf.width = Math.max(gbuf.width, BW); gbuf.height = Math.max(gbuf.height, BH); }
+  const c = gctx; c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, gbuf.width, gbuf.height);
+  c.drawImage(im, pad, pad, w, h);
   if (o.tint && o.tintA > 0) {
-    gctx.globalCompositeOperation = 'source-atop'; gctx.globalAlpha = Math.min(1, o.tintA);
-    gctx.fillStyle = o.tint; gctx.fillRect(0, 0, bw, bh);
-    gctx.globalCompositeOperation = 'source-over'; gctx.globalAlpha = 1;
+    c.globalCompositeOperation = 'source-atop'; c.globalAlpha = Math.min(1, o.tintA);
+    c.fillStyle = o.tint; c.fillRect(0, 0, BW, BH);
+    c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
   }
   ctx.save(); ctx.translate(cx, footY); ctx.rotate(o.lean || 0);
-  ctx.scale((o.flip ?? 1) * (1 + sq * .6), (1 - sq) * breathe);
+  ctx.scale((o.flip ?? 1) * (1 + (o.sq || 0) * .6), 1 - (o.sq || 0));
   ctx.globalAlpha = o.alpha ?? 1;
-  ctx.drawImage(gbuf, 0, 0, bw, bh, -w / 2 - pad, -h, bw, bh);
+  ctx.drawImage(gbuf, 0, 0, BW, BH, -pad - w * ps.footX, -pad - h + (o.bob || 0), BW, BH);
+  ctx.restore();
+}
+function rigFootY(r, side, thigh, knee) {
+  const hip = r['hip' + side], kn = r['knee' + side];
+  const tx = kn[0] - hip[0], ty = kn[1] - hip[1], sy = r.foot - kn[1];
+  const a = -thigh, b = knee - thigh;
+  return hip[1] + tx * Math.sin(a) + ty * Math.cos(a) + sy * Math.cos(b);
+}
+function drawRig(id, cx, footY, size, o) {
+  const r = RIGS[id], body = IMG[`rig-${id}-body`];
+  if (!body.complete || !body.width) return;
+  const K = r.k * size, pad = 30 * size;
+  const BW = Math.ceil(r.width * K + pad * 2), BH = Math.ceil((r.foot - r.top) * K + pad * 2);
+  if (gbuf.width < BW || gbuf.height < BH) { gbuf.width = Math.max(gbuf.width, BW); gbuf.height = Math.max(gbuf.height, BH); }
+  const c = gctx; c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, gbuf.width, gbuf.height);
+  const mode = o.mode || 'idle', ph = o.ph || 0;
+  const bob = mode === 'run' ? -Math.abs(Math.sin(ph)) * 7 : mode === 'idle' ? Math.sin(t / 20) * 2 : 0;
+  c.translate(pad - r.left * K, pad - r.top * K); c.scale(K, K); c.translate(0, bob);
+  let [a1, k1, , a2, k2] = legPose(mode, ph);
+  if (mode === 'run') { a1 *= .75; k1 *= .8; a2 *= .75; k2 *= .8; }
+  if (GROUND_POSES.has(mode)) c.translate(0, r.foot - Math.max(rigFootY(r, 'A', a2, k2), rigFootY(r, 'B', a1, k1)));
+  rigLeg(c, id, r, 'A', a2, k2);
+  rigLeg(c, id, r, 'B', a1, k1);
+  c.drawImage(body, r.at.body[0], r.at.body[1]);
+  if (r.wrist) { // casting arm pushes out and tips forward while she shoots or charges
+    const aim = o.aim || 0, arm = IMG[`rig-${id}-arm`];
+    c.save(); c.translate(r.wrist[0] + r.reach[0] * aim, r.wrist[1] + r.reach[1] * aim); c.rotate(r.turn * aim);
+    c.drawImage(arm, r.at.arm[0] - r.wrist[0], r.at.arm[1] - r.wrist[1]); c.restore();
+  }
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  if (o.tint && o.tintA > 0) {
+    c.globalCompositeOperation = 'source-atop'; c.globalAlpha = Math.min(1, o.tintA);
+    c.fillStyle = o.tint; c.fillRect(0, 0, BW, BH);
+    c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
+  }
+  const hipX = pad + ((r.hipA[0] + r.hipB[0]) / 2 - r.left) * K, footInBuf = pad + (r.foot - r.top) * K;
+  ctx.save(); ctx.translate(cx, footY); ctx.rotate(o.lean || 0);
+  ctx.scale((o.flip ?? 1) * (1 + (o.sq || 0) * .6), 1 - (o.sq || 0));
+  ctx.globalAlpha = o.alpha ?? 1;
+  ctx.drawImage(gbuf, 0, 0, BW, BH, -hipX, -footInBuf, BW, BH);
+  ctx.restore();
+}
+function drawWalker(id, cx, footY, size, o = {}) {
+  if (POSES[id]?.[o.mode]) return drawPose(id, o.mode, cx, footY, size, o);
+  if (RIGS[id]) return drawRig(id, cx, footY, size, o);
+  const im = IMG['body-' + id], cfg = WALK[id]; if (!im.complete || !im.width) return;
+  const K = cfg.k * size, L = LEG * size, lw = 8.5 * size, pad = 24 * size;
+  const bw = im.width * K, bh = im.height * K;
+  const BW = Math.ceil(bw + pad * 2), BH = Math.ceil(Math.max(bh, cfg.hip[1] * K + L) + pad * 2);
+  if (gbuf.width < BW || gbuf.height < BH) { gbuf.width = Math.max(gbuf.width, BW); gbuf.height = Math.max(gbuf.height, BH); }
+  const c = gctx; c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, gbuf.width, gbuf.height);
+  const mode = o.mode || 'idle', ph = o.ph || 0;
+  const bob = mode === 'run' ? -Math.abs(Math.sin(ph)) * 2.5 * size : mode === 'idle' ? Math.sin(t / 20) * .8 * size : 0;
+  const [a1, k1, p1, a2, k2, p2] = legPose(mode, ph);
+  // keep the lower foot on the floor when the knees bend
+  const legH = (a, k) => L / 2 * (Math.cos(a) + Math.cos(k - a));
+  const drop = GROUND_POSES.has(mode) ? L - Math.max(legH(a1, k1), legH(a2, k2)) : 0;
+  const top = pad + bob + drop, hx = pad + cfg.hip[0] * K, hy = top + cfg.hip[1] * K;
+  leg(c, hx - 3 * size, hy, a2, k2, p2, L, lw, cfg, true);
+  leg(c, hx + 3 * size, hy, a1, k1, p1, L, lw, cfg, false);
+  c.drawImage(im, pad, top, bw, bh);
+  hem(c, cfg, pad, top, K);
+  if (o.tint && o.tintA > 0) {
+    c.globalCompositeOperation = 'source-atop'; c.globalAlpha = Math.min(1, o.tintA);
+    c.fillStyle = o.tint; c.fillRect(0, 0, BW, BH);
+    c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
+  }
+  const footInBuf = pad + cfg.hip[1] * K + L;
+  ctx.save(); ctx.translate(cx, footY); ctx.rotate(o.lean || 0);
+  ctx.scale((o.flip ?? 1) * (1 + (o.sq || 0) * .6), 1 - (o.sq || 0));
+  ctx.globalAlpha = o.alpha ?? 1;
+  ctx.drawImage(gbuf, 0, 0, BW, BH, -hx, -footInBuf, BW, BH);
   ctx.restore();
 }
 function drawBoss() {
@@ -700,10 +851,18 @@ function drawPlayer() {
   const air = !P.ground, blink = P.inv > 0 && Math.floor(P.inv / 4) % 2;
   const lean = P.dead ? Math.min(1.4, (120 - endTimer) * .03) * P.face
     : P.vx * .022 + (air ? Math.max(-.2, Math.min(.2, P.vy * .015)) * P.face : 0);
-  drawGirl(P.g.id, cx - P.face * P.recoil, P.y + P.h - P.hover, 100, 150, {
-    flip: P.flipS, sq: P.sq, lean,
-    amp: 1.4 + Math.min(2.5, Math.abs(P.vx) * .4) + (air ? 1.5 : 0),
-    drag: Math.min(8, Math.abs(P.vx) * 1.2),
+  let mode = P.crouch ? 'crouch' : P.hover > 3 ? 'fall' : air ? (P.vy < -1 ? 'rise' : P.g.float && keys.jump ? 'glide' : 'fall')
+    : Math.abs(P.vx) > .6 ? 'run' : 'idle';
+  const poses = POSES[P.g.id] || {};
+  if (poses.cast && !P.crouch && (P.cast > 0 || P.charge > 8)) mode = 'cast';
+  else if (poses.jump && ['rise', 'fall', 'glide'].includes(mode) && !P.dead) mode = 'jump';
+  // run in her stride drawing, with a step bounce instead of swapping frames
+  else if (poses.walk && mode === 'run') mode = 'walk';
+  // a girl with a full set of drawings stands in her own drawing instead of the hinged legs
+  if (poses.stand && mode === 'idle') mode = 'stand';
+  drawWalker(P.g.id, cx - P.face * P.recoil, P.y + P.h - P.hover, 1, {
+    mode, ph: P.walk, aim: P.aim, flip: P.flipS, bob: mode === 'walk' ? -Math.abs(Math.sin(P.walk)) * 4 : 0, sq: P.sq, lean: P.dead ? lean : lean * .7 + (mode === 'run' ? P.face * .06 : mode === 'walk' ? Math.sin(P.walk * 2) * .035 : 0),
+    amp: .9 + (air ? .8 : 0), drag: Math.min(3, Math.abs(P.vx) * .5),
     alpha: blink ? .45 : 1,
     tint: P.hurtT > 0 ? '#ff3d6e' : P.g.color, tintA: P.hurtT > 0 ? P.hurtT / 55 : P.cast / 40,
   });
@@ -787,7 +946,7 @@ function drawHUD() {
     ctx.fillStyle = 'rgba(91,58,120,.88)'; rr(W / 2 - 290, 470, 580, 46, 23); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.font = '500 17px Fredoka';
     ctx.fillText(matchMedia('(pointer:coarse)').matches ? 'Tap ★ to shoot · hold ★ to charge, let go for a special'
-      : '← → move · Space jump · X shoot · hold X to charge a special', W / 2, 499);
+      : '← → move · ↓ crouch · Space jump · X shoot · hold X to charge', W / 2, 499);
     ctx.globalAlpha = 1;
   }
 }
@@ -801,7 +960,7 @@ function drawTitle() {
     ctx.fillStyle = sel ? '#fff' : 'rgba(255,255,255,.55)'; rr(cx - 105, 152, 210, 296, 22); ctx.fill();
     if (sel) { ctx.strokeStyle = g.color; ctx.lineWidth = 5; ctx.stroke(); }
     const bob = sel ? Math.sin(t / 10) * 4 : 0;
-    drawGirl(g.id, cx, 318 + bob - (g.id === 'creamia' ? 24 : 0), sel ? 150 : 135, 196, { amp: sel ? 1.8 : .9 });
+    drawWalker(g.id, cx, 326 + (sel ? Math.sin(t / 10) * 2 : 0), sel ? 1.38 : 1.26, { mode: POSES[g.id]?.stand ? 'stand' : 'idle', amp: sel ? 1.4 : .8 });
     ctx.fillStyle = g.color; ctx.font = '700 23px Fredoka'; ctx.fillText(g.name, cx, 352);
     ctx.fillStyle = '#6b5577'; ctx.font = '500 13px Fredoka';
     let line = '', ly = 375;
@@ -818,7 +977,8 @@ function drawEnd(win) {
   ctx.fillStyle = win ? 'rgba(253,227,234,.92)' : 'rgba(43,29,58,.82)'; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = 'center';
   if (win) {
-    drawGirl(P.g.id, W / 2, 340 + Math.sin(t / 10) * 6, 210, 340, { amp: 2.2 });
+    const ps = POSES[P.g.id] || {}, hop = Math.sin(t / 25) > .6;
+    drawWalker(P.g.id, W / 2, 350, 2, { mode: hop ? (ps.jump ? 'jump' : 'rise') : (ps.stand ? 'stand' : 'idle'), amp: 1.6 });
     ctx.fillStyle = '#c4527a'; ctx.font = '700 46px Fredoka'; ctx.fillText('The cafe is saved!', W / 2, 90);
     ctx.fillStyle = '#5b3a78'; ctx.font = '700 26px Fredoka'; ctx.fillText(`${P.g.name} calmed down Strawberry Milk  ·  ★ ${score}`, W / 2, 385);
     const got = stars.filter(s => s.got).length; ctx.font = '500 18px Fredoka'; ctx.fillText(`${got} of ${stars.length} stars`, W / 2, 415);
