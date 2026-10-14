@@ -722,7 +722,7 @@ function drawPose(id, mode, cx, footY, size, o) {
   ctx.save(); ctx.translate(cx, footY); ctx.rotate(o.lean || 0);
   ctx.scale((o.flip ?? 1) * (1 + (o.sq || 0) * .6), 1 - (o.sq || 0));
   ctx.globalAlpha = o.alpha ?? 1;
-  ctx.drawImage(gbuf, 0, 0, BW, BH, -pad - w * ps.footX, -pad - h, BW, BH);
+  ctx.drawImage(gbuf, 0, 0, BW, BH, -pad - w * ps.footX, -pad - h + (o.bob || 0), BW, BH);
   ctx.restore();
 }
 function rigFootY(r, side, thigh, knee) {
@@ -856,12 +856,12 @@ function drawPlayer() {
   const poses = POSES[P.g.id] || {};
   if (poses.cast && !P.crouch && (P.cast > 0 || P.charge > 8)) mode = 'cast';
   else if (poses.jump && ['rise', 'fall', 'glide'].includes(mode) && !P.dead) mode = 'jump';
-  // two-step run: the drawn stride, then her standing legs as the passing frame
-  else if (poses.walk && mode === 'run') mode = Math.floor(P.walk / (Math.PI / 2)) % 2 ? 'stand' : 'walk';
+  // run in her stride drawing, with a step bounce instead of swapping frames
+  else if (poses.walk && mode === 'run') mode = 'walk';
   // a girl with a full set of drawings stands in her own drawing instead of the hinged legs
   if (poses.stand && mode === 'idle') mode = 'stand';
   drawWalker(P.g.id, cx - P.face * P.recoil, P.y + P.h - P.hover, 1, {
-    mode, ph: P.walk, aim: P.aim, flip: P.flipS, sq: P.sq, lean: P.dead ? lean : lean * .7 + (mode === 'run' ? P.face * .06 : 0),
+    mode, ph: P.walk, aim: P.aim, flip: P.flipS, bob: mode === 'walk' ? -Math.abs(Math.sin(P.walk)) * 4 : 0, sq: P.sq, lean: P.dead ? lean : lean * .7 + (mode === 'run' ? P.face * .06 : mode === 'walk' ? Math.sin(P.walk * 2) * .035 : 0),
     amp: .9 + (air ? .8 : 0), drag: Math.min(3, Math.abs(P.vx) * .5),
     alpha: blink ? .45 : 1,
     tint: P.hurtT > 0 ? '#ff3d6e' : P.g.color, tintA: P.hurtT > 0 ? P.hurtT / 55 : P.cast / 40,
