@@ -54,11 +54,12 @@ addEventListener('resize', fit); fit();
 
 // ---------- assets ----------
 // bump when art changes so phones don't show cached old images
-const ASSET_V = 6;
+const ASSET_V = 7;
 const img = n => { const i = new Image(); i.src = 'assets/' + n + '.png?v=' + ASSET_V; return i; };
 const IMG = { matcha: img('matcha'), strawberry: img('strawberry'), ube: img('ube'), creamia: img('creamia'),
   cow: img('cow'), 'body-strawberry': img('body-strawberry'), 'body-matcha': img('body-matcha'),
-  'body-ube': img('body-ube'), 'body-creamia': img('body-creamia'), logo: img('logo'), health: img('potion-health'), mana: img('potion-mana') };
+  'body-ube': img('body-ube'), 'body-creamia': img('body-creamia'),
+  ...Object.fromEntries(['body', 'thighA', 'shinA', 'thighB', 'shinB'].map(n => ['rig-strawberry-' + n, img('rig/strawberry-' + n)])), logo: img('logo'), health: img('potion-health'), mana: img('potion-mana') };
 
 // Tap fires each girl's basic shot. Hold to charge, release for her special (costs mana).
 const GIRLS = [
@@ -666,7 +667,50 @@ function legPose(mode, ph) {
 }
 // Composed on a scratch canvas first, so fading and tinting apply to the whole girl at once.
 const gbuf = document.createElement('canvas'), gctx = gbuf.getContext('2d');
+// Full-body rigs cut from standing art: the body plus each leg split at hip and knee.
+// Numbers are in the rig's own pixels (the art saved at 1/4 size); A is the back leg, B the front.
+const RIGS = {
+  strawberry: { k: .34, top: 17.5, left: 3.75, width: 264, foot: 347.5,
+    at: { body: [3.75, 17.5], thighA: [93, 220.5], shinA: [77.5, 258], thighB: [142.25, 220.5], shinB: [148, 261.75] },
+    hipA: [120.5, 226.25], kneeA: [111.25, 263], hipB: [158.75, 227.5], kneeB: [160, 266.25] },
+};
+function rigLeg(c, id, r, side, thigh, knee) {
+  const hip = r['hip' + side], kn = r['knee' + side], th = IMG[`rig-${id}-thigh${side}`], sh = IMG[`rig-${id}-shin${side}`];
+  c.save(); c.translate(hip[0], hip[1]); c.rotate(-thigh);
+  c.drawImage(th, r.at['thigh' + side][0] - hip[0], r.at['thigh' + side][1] - hip[1]);
+  c.translate(kn[0] - hip[0], kn[1] - hip[1]); c.rotate(knee);
+  c.drawImage(sh, r.at['shin' + side][0] - kn[0], r.at['shin' + side][1] - kn[1]);
+  c.restore();
+}
+function drawRig(id, cx, footY, size, o) {
+  const r = RIGS[id], body = IMG[`rig-${id}-body`];
+  if (!body.complete || !body.width) return;
+  const K = r.k * size, pad = 30 * size;
+  const BW = Math.ceil(r.width * K + pad * 2), BH = Math.ceil((r.foot - r.top) * K + pad * 2);
+  if (gbuf.width < BW || gbuf.height < BH) { gbuf.width = Math.max(gbuf.width, BW); gbuf.height = Math.max(gbuf.height, BH); }
+  const c = gctx; c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, gbuf.width, gbuf.height);
+  const mode = o.mode || 'idle', ph = o.ph || 0;
+  const bob = mode === 'run' ? -Math.abs(Math.sin(ph)) * 7 : mode === 'idle' ? Math.sin(t / 20) * 2 : 0;
+  c.translate(pad - r.left * K, pad - r.top * K); c.scale(K, K); c.translate(0, bob);
+  const [a1, k1, , a2, k2] = legPose(mode, ph);
+  rigLeg(c, id, r, 'A', a2 * .75, k2 * .8);
+  rigLeg(c, id, r, 'B', a1 * .75, k1 * .8);
+  c.drawImage(body, r.at.body[0], r.at.body[1]);
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  if (o.tint && o.tintA > 0) {
+    c.globalCompositeOperation = 'source-atop'; c.globalAlpha = Math.min(1, o.tintA);
+    c.fillStyle = o.tint; c.fillRect(0, 0, BW, BH);
+    c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
+  }
+  const hipX = pad + ((r.hipA[0] + r.hipB[0]) / 2 - r.left) * K, footInBuf = pad + (r.foot - r.top) * K;
+  ctx.save(); ctx.translate(cx, footY); ctx.rotate(o.lean || 0);
+  ctx.scale((o.flip ?? 1) * (1 + (o.sq || 0) * .6), 1 - (o.sq || 0));
+  ctx.globalAlpha = o.alpha ?? 1;
+  ctx.drawImage(gbuf, 0, 0, BW, BH, -hipX, -footInBuf, BW, BH);
+  ctx.restore();
+}
 function drawWalker(id, cx, footY, size, o = {}) {
+  if (RIGS[id]) return drawRig(id, cx, footY, size, o);
   const im = IMG['body-' + id], cfg = WALK[id]; if (!im.complete || !im.width) return;
   const K = cfg.k * size, L = LEG * size, lw = 8.5 * size, pad = 24 * size;
   const bw = im.width * K, bh = im.height * K;
