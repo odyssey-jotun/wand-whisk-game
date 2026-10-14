@@ -1,0 +1,33 @@
+# Publishes both games: main at the site root, the animated branch at /animated/
+name: Deploy both games
+on:
+  push:
+    branches: [main, animated]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main, path: site }
+      - uses: actions/checkout@v4
+        with: { ref: animated, path: animated }
+      - run: |
+          rm -rf site/.git site/.github
+          mkdir -p site/animated
+          rsync -a --exclude .git --exclude .github animated/ site/animated/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: site }
+      - id: deploy
+        uses: actions/deploy-pages@v4
