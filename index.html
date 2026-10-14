@@ -611,14 +611,6 @@ function tinted(im, col) {
   const x = c.getContext('2d'); x.drawImage(im, 0, 0); x.globalCompositeOperation = 'source-in'; x.fillStyle = col; x.fillRect(0, 0, c.width, c.height);
   return (tints[key] = c);
 }
-// Draws the art in horizontal slices that sway more toward the bottom, so capes, skirts and hair move.
-function wavy(c, src, x, y, w, h, amp, drag) {
-  const N = 26, sh = src.height / N, dh = h / N;
-  for (let i = 0; i < N; i++) {
-    const f2 = (i / N) ** 2, off = Math.sin(t * .16 + i * .45) * amp * f2 - drag * f2;
-    c.drawImage(src, 0, i * sh, src.width, sh + 1, x + off, y + i * dh, w, dh + .6);
-  }
-}
 // Creamia's art stops at her coat, so she rides a whipped-cream cloud that covers the edge.
 function cloud(c, cx, y, w) {
   const puffs = [[-.42, .03, .2], [-.22, -.03, .26], [0, -.05, .3], [.22, -.03, .26], [.42, .03, .2], [-.12, .08, .24], [.14, .09, .24]];
@@ -641,7 +633,7 @@ function drawGirl(id, cx, footY, maxH, maxW, o = {}) {
   const pad = 20, bw = Math.ceil(w + pad * 2), bh = Math.ceil(h + 34);
   if (gbuf.width < bw || gbuf.height < bh) { gbuf.width = Math.max(gbuf.width, bw); gbuf.height = Math.max(gbuf.height, bh); }
   gctx.globalCompositeOperation = 'source-over'; gctx.globalAlpha = 1; gctx.clearRect(0, 0, gbuf.width, gbuf.height);
-  wavy(gctx, im, pad, 0, w, h, amp, drag);
+  gctx.drawImage(im, pad, 0, w, h);
   if (id === 'creamia') cloud(gctx, pad + w / 2 - w * .07, h - h * .02, w * .8);
   if (o.tint && o.tintA > 0) {
     gctx.globalCompositeOperation = 'source-atop'; gctx.globalAlpha = Math.min(1, o.tintA);
