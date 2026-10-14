@@ -55,14 +55,14 @@ addEventListener('resize', fit); fit();
 
 // ---------- assets ----------
 // bump when art changes so phones don't show cached old images
-const ASSET_V = 10;
+const ASSET_V = 11;
 const img = n => { const i = new Image(); i.src = 'assets/' + n + '.png?v=' + ASSET_V; return i; };
 const IMG = { matcha: img('matcha'), strawberry: img('strawberry'), ube: img('ube'), creamia: img('creamia'),
   cow: img('cow'), 'body-strawberry': img('body-strawberry'), 'body-matcha': img('body-matcha'),
   'body-ube': img('body-ube'), 'body-creamia': img('body-creamia'),
   ...Object.fromEntries([['strawberry', []], ['matcha', ['arm']], ['ube', []], ['creamia', []]].flatMap(([id, extra]) =>
     ['body', 'thighA', 'shinA', 'thighB', 'shinB', ...extra].map(n => [`rig-${id}-${n}`, img(`rig/${id}-${n}`)]))),
-  'pose-ube-crouch': img('rig/ube-crouch'), 'pose-ube-jump': img('rig/ube-jump'), 'pose-ube-cast': img('rig/ube-cast'), logo: img('logo'), health: img('potion-health'), mana: img('potion-mana') };
+  'pose-ube-crouch': img('rig/ube-crouch'), 'pose-ube-jump': img('rig/ube-jump'), 'pose-ube-cast': img('rig/ube-cast'), 'pose-ube-walk': img('rig/ube-walk'), logo: img('logo'), health: img('potion-health'), mana: img('potion-mana') };
 
 // Tap fires each girl's basic shot. Hold to charge, release for her special (costs mana).
 const GIRLS = [
@@ -705,7 +705,7 @@ function rigLeg(c, id, r, side, thigh, knee) {
 }
 const GROUND_POSES = new Set(['idle', 'run', 'crouch']);
 // Whole drawn poses that replace the leg system for one move. h = height on screen, footX = where her feet sit across the image (0 to 1).
-const POSES = { ube: { crouch: { h: 76, footX: .54 }, jump: { h: 101, footX: .56 }, cast: { h: 100, footX: .4 } } };
+const POSES = { ube: { crouch: { h: 76, footX: .54 }, jump: { h: 101, footX: .56 }, cast: { h: 100, footX: .4 }, walk: { h: 104, footX: .56 } } };
 function drawPose(id, mode, cx, footY, size, o) {
   const im = IMG[`pose-${id}-${mode}`], ps = POSES[id][mode];
   if (!im.complete || !im.width) return;
@@ -856,6 +856,8 @@ function drawPlayer() {
   const poses = POSES[P.g.id] || {};
   if (poses.cast && !P.crouch && (P.cast > 0 || P.charge > 8)) mode = 'cast';
   else if (poses.jump && ['rise', 'fall', 'glide'].includes(mode) && !P.dead) mode = 'jump';
+  // two-step run: the drawn stride, then her standing legs as the passing frame
+  else if (poses.walk && mode === 'run') mode = Math.floor(P.walk / (Math.PI / 2)) % 2 ? 'idle' : 'walk';
   drawWalker(P.g.id, cx - P.face * P.recoil, P.y + P.h - P.hover, 1, {
     mode, ph: P.walk, aim: P.aim, flip: P.flipS, sq: P.sq, lean: P.dead ? lean : lean * .7 + (mode === 'run' ? P.face * .06 : 0),
     amp: .9 + (air ? .8 : 0), drag: Math.min(3, Math.abs(P.vx) * .5),

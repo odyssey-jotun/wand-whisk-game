@@ -8,3 +8,4 @@ cut_rig.py turns a standing image (white background removed) into the body, thig
 plus an optional casting arm. The numbers for each girl live in the git log of this folder.
 - ube-stand.png, creamia-stand.png: mirrored from the ChatGPT originals so they face right
 - ube-jump.png, ube-cast.png: Ube's whole drawn poses for jumping and casting
+- ube-walk.png: Ube mid-stride, alternated with her standing legs for a two-step run
