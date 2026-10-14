@@ -7,7 +7,9 @@ import sys, json, os
 from PIL import Image, ImageDraw, ImageFilter, ImageChops
 name, src, P = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
 im = Image.open(src); W, H = im.size; SC = 0.25
-def poly(p): m = Image.new('L', (W, H), 0); ImageDraw.Draw(m).polygon([tuple(v) for v in p], fill=255); return m
+def poly(p, grow=P.get('grow', 0)):
+    m = Image.new('L', (W, H), 0); ImageDraw.Draw(m).polygon([tuple(v) for v in p], fill=255)
+    return m.filter(ImageFilter.MaxFilter(grow * 2 + 1)) if grow else m
 def clip(m): out = im.copy(); out.putalpha(ImageChops.multiply(im.split()[3], m)); return out
 def band(p, y0, y1):
     b = Image.new('L', (W, H), 0); ImageDraw.Draw(b).rectangle([0, y0, W, y1], fill=255)

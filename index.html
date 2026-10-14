@@ -55,14 +55,14 @@ addEventListener('resize', fit); fit();
 
 // ---------- assets ----------
 // bump when art changes so phones don't show cached old images
-const ASSET_V = 9;
+const ASSET_V = 10;
 const img = n => { const i = new Image(); i.src = 'assets/' + n + '.png?v=' + ASSET_V; return i; };
 const IMG = { matcha: img('matcha'), strawberry: img('strawberry'), ube: img('ube'), creamia: img('creamia'),
   cow: img('cow'), 'body-strawberry': img('body-strawberry'), 'body-matcha': img('body-matcha'),
   'body-ube': img('body-ube'), 'body-creamia': img('body-creamia'),
-  ...Object.fromEntries([['strawberry', []], ['matcha', ['arm']]].flatMap(([id, extra]) =>
+  ...Object.fromEntries([['strawberry', []], ['matcha', ['arm']], ['ube', []], ['creamia', []]].flatMap(([id, extra]) =>
     ['body', 'thighA', 'shinA', 'thighB', 'shinB', ...extra].map(n => [`rig-${id}-${n}`, img(`rig/${id}-${n}`)]))),
-  'pose-ube-crouch': img('rig/ube-crouch'), logo: img('logo'), health: img('potion-health'), mana: img('potion-mana') };
+  'pose-ube-crouch': img('rig/ube-crouch'), 'pose-ube-jump': img('rig/ube-jump'), 'pose-ube-cast': img('rig/ube-cast'), logo: img('logo'), health: img('potion-health'), mana: img('potion-mana') };
 
 // Tap fires each girl's basic shot. Hold to charge, release for her special (costs mana).
 const GIRLS = [
@@ -688,6 +688,12 @@ const RIGS = {
     at: { body: [46, 6.75], thighA: [94.75, 227.25], shinA: [84.75, 261.75], thighB: [132.75, 228], shinB: [143.5, 264.25], arm: [177.75, 103.25] },
     hipA: [118, 237.5], kneeA: [113, 267], hipB: [160, 238.75], kneeB: [160.5, 269.5],
     wrist: [197.5, 166.25], reach: [16, -4], turn: .3 },
+  ube: { k: .343, top: 13.5, left: 16.5, width: 239, foot: 340.5,
+    at: { body: [16.5, 13.5], thighA: [90.75, 208.25], shinA: [58.75, 263.5], thighB: [124.5, 208.25], shinB: [140.25, 263.5] },
+    hipA: [107.5, 218.75], kneeA: [103.75, 268.75], hipB: [145, 220], kneeB: [151.25, 268.75] },
+  creamia: { k: .349, top: 19.5, left: 16, width: 223.25, foot: 340.5,
+    at: { body: [16, 19.5], thighA: [105.5, 204.5], shinA: [89.75, 252.25], thighB: [169.5, 204.5], shinB: [175.5, 254.75] },
+    hipA: [137.5, 217.5], kneeA: [121.25, 257.5], hipB: [185, 217.5], kneeB: [187.5, 260] },
 };
 function rigLeg(c, id, r, side, thigh, knee) {
   const hip = r['hip' + side], kn = r['knee' + side], th = IMG[`rig-${id}-thigh${side}`], sh = IMG[`rig-${id}-shin${side}`];
@@ -699,7 +705,7 @@ function rigLeg(c, id, r, side, thigh, knee) {
 }
 const GROUND_POSES = new Set(['idle', 'run', 'crouch']);
 // Whole drawn poses that replace the leg system for one move. h = height on screen, footX = where her feet sit across the image (0 to 1).
-const POSES = { ube: { crouch: { h: 76, footX: .54 } } };
+const POSES = { ube: { crouch: { h: 76, footX: .54 }, jump: { h: 101, footX: .56 }, cast: { h: 100, footX: .4 } } };
 function drawPose(id, mode, cx, footY, size, o) {
   const im = IMG[`pose-${id}-${mode}`], ps = POSES[id][mode];
   if (!im.complete || !im.width) return;
@@ -845,8 +851,11 @@ function drawPlayer() {
   const air = !P.ground, blink = P.inv > 0 && Math.floor(P.inv / 4) % 2;
   const lean = P.dead ? Math.min(1.4, (120 - endTimer) * .03) * P.face
     : P.vx * .022 + (air ? Math.max(-.2, Math.min(.2, P.vy * .015)) * P.face : 0);
-  const mode = P.crouch ? 'crouch' : P.hover > 3 ? 'fall' : air ? (P.vy < -1 ? 'rise' : P.g.float && keys.jump ? 'glide' : 'fall')
+  let mode = P.crouch ? 'crouch' : P.hover > 3 ? 'fall' : air ? (P.vy < -1 ? 'rise' : P.g.float && keys.jump ? 'glide' : 'fall')
     : Math.abs(P.vx) > .6 ? 'run' : 'idle';
+  const poses = POSES[P.g.id] || {};
+  if (poses.cast && !P.crouch && (P.cast > 0 || P.charge > 8)) mode = 'cast';
+  else if (poses.jump && ['rise', 'fall', 'glide'].includes(mode) && !P.dead) mode = 'jump';
   drawWalker(P.g.id, cx - P.face * P.recoil, P.y + P.h - P.hover, 1, {
     mode, ph: P.walk, aim: P.aim, flip: P.flipS, sq: P.sq, lean: P.dead ? lean : lean * .7 + (mode === 'run' ? P.face * .06 : 0),
     amp: .9 + (air ? .8 : 0), drag: Math.min(3, Math.abs(P.vx) * .5),
