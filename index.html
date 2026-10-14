@@ -55,13 +55,14 @@ addEventListener('resize', fit); fit();
 
 // ---------- assets ----------
 // bump when art changes so phones don't show cached old images
-const ASSET_V = 8;
+const ASSET_V = 9;
 const img = n => { const i = new Image(); i.src = 'assets/' + n + '.png?v=' + ASSET_V; return i; };
 const IMG = { matcha: img('matcha'), strawberry: img('strawberry'), ube: img('ube'), creamia: img('creamia'),
   cow: img('cow'), 'body-strawberry': img('body-strawberry'), 'body-matcha': img('body-matcha'),
   'body-ube': img('body-ube'), 'body-creamia': img('body-creamia'),
   ...Object.fromEntries([['strawberry', []], ['matcha', ['arm']]].flatMap(([id, extra]) =>
-    ['body', 'thighA', 'shinA', 'thighB', 'shinB', ...extra].map(n => [`rig-${id}-${n}`, img(`rig/${id}-${n}`)]))), logo: img('logo'), health: img('potion-health'), mana: img('potion-mana') };
+    ['body', 'thighA', 'shinA', 'thighB', 'shinB', ...extra].map(n => [`rig-${id}-${n}`, img(`rig/${id}-${n}`)]))),
+  'pose-ube-crouch': img('rig/ube-crouch'), logo: img('logo'), health: img('potion-health'), mana: img('potion-mana') };
 
 // Tap fires each girl's basic shot. Hold to charge, release for her special (costs mana).
 const GIRLS = [
@@ -697,6 +698,27 @@ function rigLeg(c, id, r, side, thigh, knee) {
   c.restore();
 }
 const GROUND_POSES = new Set(['idle', 'run', 'crouch']);
+// Whole drawn poses that replace the leg system for one move. h = height on screen, footX = where her feet sit across the image (0 to 1).
+const POSES = { ube: { crouch: { h: 76, footX: .54 } } };
+function drawPose(id, mode, cx, footY, size, o) {
+  const im = IMG[`pose-${id}-${mode}`], ps = POSES[id][mode];
+  if (!im.complete || !im.width) return;
+  const h = ps.h * size, w = im.width * h / im.height, pad = 4;
+  const BW = Math.ceil(w + pad * 2), BH = Math.ceil(h + pad * 2);
+  if (gbuf.width < BW || gbuf.height < BH) { gbuf.width = Math.max(gbuf.width, BW); gbuf.height = Math.max(gbuf.height, BH); }
+  const c = gctx; c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, gbuf.width, gbuf.height);
+  c.drawImage(im, pad, pad, w, h);
+  if (o.tint && o.tintA > 0) {
+    c.globalCompositeOperation = 'source-atop'; c.globalAlpha = Math.min(1, o.tintA);
+    c.fillStyle = o.tint; c.fillRect(0, 0, BW, BH);
+    c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
+  }
+  ctx.save(); ctx.translate(cx, footY); ctx.rotate(o.lean || 0);
+  ctx.scale((o.flip ?? 1) * (1 + (o.sq || 0) * .6), 1 - (o.sq || 0));
+  ctx.globalAlpha = o.alpha ?? 1;
+  ctx.drawImage(gbuf, 0, 0, BW, BH, -pad - w * ps.footX, -pad - h, BW, BH);
+  ctx.restore();
+}
 function rigFootY(r, side, thigh, knee) {
   const hip = r['hip' + side], kn = r['knee' + side];
   const tx = kn[0] - hip[0], ty = kn[1] - hip[1], sy = r.foot - kn[1];
@@ -738,6 +760,7 @@ function drawRig(id, cx, footY, size, o) {
   ctx.restore();
 }
 function drawWalker(id, cx, footY, size, o = {}) {
+  if (POSES[id]?.[o.mode]) return drawPose(id, o.mode, cx, footY, size, o);
   if (RIGS[id]) return drawRig(id, cx, footY, size, o);
   const im = IMG['body-' + id], cfg = WALK[id]; if (!im.complete || !im.width) return;
   const K = cfg.k * size, L = LEG * size, lw = 8.5 * size, pad = 24 * size;
